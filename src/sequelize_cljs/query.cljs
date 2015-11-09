@@ -45,7 +45,7 @@
                     :params params
                     :raw? raw?
                     :sql-fn (if include
-                              #(.create %1 %2 (clj->js {:include include}))
+                              #(.create %1 %2 (process-params {:include include}))
                               #(.create %1 %2))}))
 
 (defn find-all
