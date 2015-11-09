@@ -1,6 +1,7 @@
 (ns sequelize-cljs.query
   (:require-macros [cljs.core.async.macros :refer [go]])
   (:require [clojure.string :as string]
+            [clojure.walk :refer [postwalk]]
             [cljs.core.async :refer [>! chan close!]]
             [sequelize-cljs.core :refer [get-model]]))
 
@@ -10,13 +11,18 @@
     (js->clj (.get obj #js {:plain true}) :keywordize-keys true)
     {}))
 
+(defn process-params
+  [m]
+  (clj->js
+   (let [f (fn [[k v]] (if (= (name k) "model") [k (get-model v)] [k v]))]
+     (postwalk (fn [x] (if (map? x) (into {} (map f x)) x)) m))))
+
 (defn async-sequelize
   [{:keys [model id params raw? array? sql-fn]}]
   (assert (or id params))
   (let [channel (chan)]
     (-> (get-model model)
-        ;TODO: Walk include params and run (get-model) on them
-        (sql-fn (or id (clj->js params)))
+        (sql-fn (or id (process-params params)))
         (.then (fn [obj]
                  (go (>! channel
                          {:error? false
