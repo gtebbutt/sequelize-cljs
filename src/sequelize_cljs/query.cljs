@@ -3,7 +3,7 @@
   (:require [clojure.string :as string]
             [clojure.walk :refer [postwalk]]
             [cljs.core.async :refer [>! chan close!]]
-            [sequelize-cljs.core :refer [get-model]]))
+            [sequelize-cljs.core :refer [get-model sequelize-instance]]))
 
 (defn parse-model
   [obj]
@@ -18,18 +18,25 @@
      (postwalk (fn [x] (if (map? x) (into {} (map f x)) x)) m))))
 
 (defn async-sequelize
-  [{:keys [model id params raw? array? sql-fn]}]
+  [{:keys [model id params raw? array? sql-fn plain-obj?]}]
   (assert (or id params))
-  (let [channel (chan)]
-    (-> (get-model model)
+  (let [channel (chan)
+        model-obj (or (get-model model) @sequelize-instance)]
+    (-> model-obj
         (sql-fn (or id (process-params params)))
         (.then (fn [obj]
                  (go (>! channel
                          {:error? false
-                          :content (if array?
-                                     (for [item obj]
-                                       (parse-model item))
-                                     (parse-model obj))
+                          :content (cond
+                                    plain-obj?
+                                    (js->clj obj :keywordize-keys true)
+
+                                    array?
+                                    (for [item obj]
+                                      (parse-model item))
+
+                                    :else
+                                    (parse-model obj))
                           :raw (when raw? obj)})
                      (close! channel)))
 
@@ -38,6 +45,13 @@
                                   :msg err})
                      (close! channel)))))
     channel))
+
+(defn raw-query
+  [query-str params & {:keys [raw?]}]
+  (async-sequelize {:params params
+                    :raw? raw?
+                    :plain-obj? true
+                    :sql-fn #(.query %1 query-str %2)}))
 
 (defn create
   [model params & {:keys [raw? include]}]
